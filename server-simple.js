@@ -22,12 +22,17 @@ app.post("/clean-audio", upload.single("audio"), (req, res) => {
     const inputPath = req.file.path;
     const outputPath = `cleaned_${Date.now()}.wav`;
 
-    let filters = "";
-    badWords.forEach((word, i) => {
-        filters += `-af "volume=enable='between(t,${2 * i},${2 * i + 1})':volume=0" `;
-    });
+    // segments = array of { start, end } in seconds
+const conditions = segments
+  .map((seg) => `between(t,${seg.start},${seg.end})`)
+  .join("+");
 
-    const cmd = `ffmpeg -i ${inputPath} ${filters} ${outputPath}`;
+// Mute when any of the segments is “true”, normal volume otherwise
+const filter = `volume='if(${conditions},0,1)'`;
+
+// -y = overwrite output file if it exists
+const cmd = `ffmpeg -y -i "${inputPath}" -af "${filter}" "${outputPath}"`;
+
 
     exec(cmd, (err) => {
         if (err) {
