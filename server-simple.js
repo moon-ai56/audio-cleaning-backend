@@ -22,16 +22,24 @@ app.post("/clean-audio", upload.single("audio"), (req, res) => {
     const inputPath = req.file.path;
     const outputPath = `cleaned_${Date.now()}.wav`;
 
-    // segments = array of { start, end } in seconds
-const conditions = segments
+    // badwords = array of { start, end } in seconds
+const conditions = (badwords || [])
   .map((seg) => `between(t,${seg.start},${seg.end})`)
   .join("+");
 
-// Mute when any of the segments is “true”, normal volume otherwise
+// If no words selected, just return original audio
+if (!conditions) {
+  return res.download(inputPath, () => {
+    try { fs.unlinkSync(inputPath); } catch (e) {}
+  });
+}
+
+// Mute whenever any of the ranges is “true”
 const filter = `volume='if(${conditions},0,1)'`;
 
-// -y = overwrite output file if it exists
+// -y = overwrite output if it already exists
 const cmd = `ffmpeg -y -i "${inputPath}" -af "${filter}" "${outputPath}"`;
+
 
 
     exec(cmd, (err) => {
