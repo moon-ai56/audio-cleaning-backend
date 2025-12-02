@@ -18,27 +18,48 @@ app.get("/", (req, res) => {
 
 // Upload + Clean Route
 app.post("/clean-audio", upload.single("audio"), (req, res) => {
-    const badWords = req.body.badWords ? JSON.parse(req.body.badWords) : [];
-    const inputPath = req.file.path;
-    const outputPath = `cleaned_${Date.now()}.wav`;
+  let badwords = [];
+  try {
+    const raw = req.body.badwords || "[]"; // form-data field from Vibecode
+    badwords = JSON.parse(raw);
+  } catch (e) {
+    console.error("Failed to parse badwords JSON:", e);
+    badwords = [];
+  }
 
-    // badwords = array of { start, end } in seconds
-const conditions = (badwords || [])
-  .map((seg) => `between(t,${seg.start},${seg.end})`)
-  .join("+");
+  const inputPath = req.file.path;
+  const outputPath = `cleaned_${Date.now()}.wav`;
 
-// If no words selected, just return original audio
-if (!conditions) {
-  return res.download(inputPath, () => {
-    try { fs.unlinkSync(inputPath); } catch (e) {}
+  // If no words selected, return original audio
+  if (!badwords.length) {
+    return res.download(inputPath, () => {
+      try { fs.unlinkSync(inputPath); } catch (e) {}
+    });
+  }
+
+  // Build FFmpeg mute conditions
+  const conditions = badwords
+    .map((seg) => `between(t,${seg.start},${seg.end})`)
+    .join("+");
+
+  const filter = `volume='if(${conditions},0,1)'`;
+
+  const cmd = `ffmpeg -y -i "${inputPath}" -af "${filter}" "${outputPath}"`;
+
+  exec(cmd, (err) => {
+    if (err) {
+      console.error("FFmpeg error:", err);
+      return res.status(500).json({ error: "Error cleaning audio" });
+    }
+
+    // Send cleaned audio
+    return res.download(outputPath, () => {
+      try { fs.unlinkSync(inputPath); } catch (e) {}
+      try { fs.unlinkSync(outputPath); } catch (e) {}
+    });
   });
-}
+});
 
-// Mute whenever any of the ranges is “true”
-const filter = `volume='if(${conditions},0,1)'`;
-
-// -y = overwrite output if it already exists
-const cmd = `ffmpeg -y -i "${inputPath}" -af "${filter}" "${outputPath}"`;
 
 
 
