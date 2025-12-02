@@ -28,15 +28,15 @@ app.get("/", (req, res) => {
 });
 
 /* -----------------------------
-   CLEAN AUDIO (TEST VERSION)
-   → ALWAYS mutes first 0–3 seconds
-   → If this works, backend is GOOD
+   CLEAN AUDIO (FINAL VERSION)
+   → Uses REAL transcription timestamps
+   → Mutes ONLY the selected bad words
 ------------------------------ */
 app.post("/clean-audio", upload.single("audio"), async (req, res) => {
-  console.log("🔥 CLEAN TEST STARTED");
+  console.log("🔥 CLEANING (FULL MODE) STARTED");
 
   try {
-    // Make sure file exists
+    // Ensure file exists
     const inputPath = req.file?.path;
     if (!inputPath) {
       console.log("❌ No file uploaded");
@@ -45,12 +45,36 @@ app.post("/clean-audio", upload.single("audio"), async (req, res) => {
 
     console.log("📁 Input Path:", inputPath);
 
-    // Build output path
+    // Parse badwords timestamps
+    let badwords = [];
+    try {
+      badwords = JSON.parse(req.body.badwords || "[]");
+    } catch (err) {
+      console.log("❌ Failed to parse badwords JSON:", err);
+      badwords = [];
+    }
+
+    console.log("📝 Badwords received:", badwords);
+
     const outputPath = path.join("uploads", `cleaned_${Date.now()}.wav`);
 
-    // FFmpeg command: mute 0–3 seconds
-    console.log("🎛 Running ffmpeg test mute 0-3 seconds...");
-    const cmd = `ffmpeg -y -i "${inputPath}" -af "volume=enable='between(t,0,3)':volume=0" "${outputPath}"`;
+    // If no words selected, return original audio
+    if (!badwords.length) {
+      console.log("⚠️ No words selected — returning original file.");
+      return res.download(inputPath);
+    }
+
+    /* -----------------------------
+       BUILD FILTER:
+       volume=enable='between(t,start,end)':volume=0
+       One filter per bad word, separated by commas
+    ------------------------------ */
+    const filters = badwords
+      .map(seg => `volume=enable='between(t,${seg.start},${seg.end})':volume=0`)
+      .join(",");
+
+    const cmd = `ffmpeg -y -i "${inputPath}" -af "${filters}" "${outputPath}"`;
+
     console.log("🧨 FFmpeg CMD:", cmd);
 
     exec(cmd, (err, stdout, stderr) => {
@@ -62,25 +86,24 @@ app.post("/clean-audio", upload.single("audio"), async (req, res) => {
         return res.status(500).json({ error: "FFmpeg failed" });
       }
 
-      // Check sizes for debugging
-      const inputSize = fs.statSync(inputPath).size;
-      const outputSize = fs.statSync(outputPath).size;
-
-      console.log("📏 Input size:", inputSize);
-      console.log("📏 Output size:", outputSize);
-
-      if (inputSize === outputSize) {
-        console.log("⚠️ Warning: output same size as input (mute may have failed)");
+      // Optional: Log file sizes
+      try {
+        const inputSize = fs.statSync(inputPath).size;
+        const outputSize = fs.statSync(outputPath).size;
+        console.log("📏 Input size:", inputSize);
+        console.log("📏 Output size:", outputSize);
+      } catch (e) {
+        console.log("⚠️ Could not read file sizes:", e);
       }
 
-      console.log("✅ CLEANING DONE:", outputPath);
+      console.log("✅ FULL CLEANING DONE:", outputPath);
 
-      // DO NOT DELETE OUTPUT FILE YET — let frontend download it
+      // Return cleaned audio file to frontend
       return res.download(outputPath);
     });
 
   } catch (err) {
-    console.error("💥 CLEAN TEST FAILED:", err);
+    console.error("💥 CLEAN ERROR:", err);
     return res.status(500).json({ error: err.message });
   }
 });
