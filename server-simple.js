@@ -17,7 +17,7 @@ app.get("/", (req, res) => {
 });
 
 // Upload + Clean Route
-app.post("/clean", upload.single("audio"), (req, res) => {
+app.post("/clean-audio", upload.single("audio"), (req, res) => {
     const badWords = req.body.badWords ? JSON.parse(req.body.badWords) : [];
     const inputPath = req.file.path;
     const outputPath = `cleaned_${Date.now()}.wav`;
